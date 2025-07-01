@@ -1,0 +1,718 @@
+//添加移动输入
+void APawn::AddMovementInput(FVector WorldDirection, float ScaleValue, bool bForce /*=false*/)
+{
+	UPawnMovementComponent* MovementComponent = GetMovementComponent();
+	if (MovementComponent)
+	{
+		MovementComponent->AddInputVector(WorldDirection * ScaleValue, bForce);
+	}
+	else
+	{
+		Internal_AddMovementInput(WorldDirection * ScaleValue, bForce);
+	}
+}
+
+//获取前进向量
+FVector UKismetMathLibrary::GetForwardVector(FRotator InRot)
+{
+	return InRot.Vector();
+}
+
+//获取控制方向
+FRotator APawn::GetControlRotation() const
+{
+	return Controller ? Controller->GetControlRotation() : FRotator::ZeroRotator;
+}
+
+//判断是否处于下落状态
+inline bool UNavMovementComponent::IsFalling() const
+{
+	return false;
+}
+
+//获取移动速度
+FVector AActor::GetVelocity() const
+{
+	if (RootComponent)
+	{
+		return RootComponent->GetComponentVelocity();
+	}
+
+	return FVector::ZeroVector;
+}
+
+//分解向量
+KISMET_MATH_FORCEINLINE
+void UKismetMathLibrary::BreakVector(FVector InVec, float& X, float& Y, float& Z)
+{
+	X = InVec.X;
+	Y = InVec.Y;
+	Z = InVec.Z;
+}
+
+//角色跳跃
+void ACharacter::Jump()
+{
+	bPressedJump = true;
+	JumpKeyHoldTime = 0.0f;
+}
+
+//设置角色动画书
+bool UPaperFlipbookComponent::SetFlipbook(class UPaperFlipbook* NewFlipbook)
+{
+	if (NewFlipbook != SourceFlipbook)
+	{
+		// Don't allow changing the sprite if we are "static".
+		AActor* ComponentOwner = GetOwner();
+		if ((ComponentOwner == nullptr) || AreDynamicDataChangesAllowed())
+		{
+			SourceFlipbook = NewFlipbook;
+
+			// We need to also reset the frame and time also
+			AccumulatedTime = 0.0f;
+			CalculateCurrentFrame();
+
+			// Need to send this to render thread at some point
+			MarkRenderStateDirty();
+
+			// Update physics representation right away
+			FlipbookChangedPhysicsState();
+
+			// Update this component streaming data.
+			IStreamingManager::Get().NotifyPrimitiveUpdated(this);
+
+			// Since we have new mesh, we need to update bounds
+			UpdateBounds();
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+//设置转动方向
+void USceneComponent::K2_SetRelativeRotation(FRotator NewRotation, bool bSweep, FHitResult& SweepHitResult, bool bTeleport)
+{
+	SetRelativeRotation(NewRotation, bSweep, (bSweep ? &SweepHitResult : nullptr), TeleportFlagToEnum(bTeleport));
+}
+
+//延时
+void UKismetSystemLibrary::Delay(const UObject* WorldContextObject, float Duration, FLatentActionInfo LatentInfo)
+{
+	if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull))
+	{
+		FLatentActionManager& LatentActionManager = World->GetLatentActionManager();
+		if (LatentActionManager.FindExistingAction<FDelayAction>(LatentInfo.CallbackTarget, LatentInfo.UUID) == NULL)
+		{
+			LatentActionManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID, new FDelayAction(Duration, LatentInfo));
+		}
+	}
+}
+
+//获取重叠的actor实例
+void AActor::GetOverlappingActors(TArray<AActor*>& OutOverlappingActors, TSubclassOf<AActor> ClassFilter) const
+{
+	// prepare output
+	TSet<AActor*> OverlappingActors;
+	GetOverlappingActors(OverlappingActors, ClassFilter);
+
+	OutOverlappingActors.Reset(OverlappingActors.Num());
+
+	for (AActor* OverlappingActor : OverlappingActors)
+	{
+		OutOverlappingActors.Add(OverlappingActor);
+	}
+}
+
+//获取动画书的播放时长
+float UPaperFlipbookComponent::GetFlipbookLength() const
+{
+	return (SourceFlipbook != nullptr) ? SourceFlipbook->GetTotalDuration() : 0.0f;
+}
+
+//施加伤害
+float UGameplayStatics::ApplyDamage(AActor* DamagedActor, float BaseDamage, AController* EventInstigator, AActor* DamageCauser, TSubclassOf<UDamageType> DamageTypeClass)
+{
+	if (DamagedActor && (BaseDamage != 0.f))
+	{
+		// make sure we have a good damage type
+		TSubclassOf<UDamageType> const ValidDamageTypeClass = DamageTypeClass ? DamageTypeClass : TSubclassOf<UDamageType>(UDamageType::StaticClass());
+		FDamageEvent DamageEvent(ValidDamageTypeClass);
+
+		return DamagedActor->TakeDamage(BaseDamage, DamageEvent, EventInstigator, DamageCauser);
+	}
+
+	return 0.f;
+}
+
+//获得actor类
+AActor* UGameplayStatics::GetActorOfClass(const UObject* WorldContextObject, TSubclassOf<AActor> ActorClass)
+{
+	QUICK_SCOPE_CYCLE_COUNTER(UGameplayStatics_GetActorOfClass);
+
+	// We do nothing if no is class provided
+	if (ActorClass)
+	{
+		if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull))
+		{
+			for (TActorIterator<AActor> It(World, ActorClass); It; ++It)
+			{
+				AActor* Actor = *It;
+				return Actor;
+			}
+		}
+	}
+
+	return nullptr;
+}
+
+//获得当前玩家控制器
+FORCEINLINE AController* APawn::GetController() const
+{
+	return Controller;
+}
+
+//
+float UPaperFlipbookComponent::GetFlipbookLength() const
+{
+	return (SourceFlipbook != nullptr) ? SourceFlipbook->GetTotalDuration() : 0.0f;
+}
+
+//设置精灵颜色
+void UPaperFlipbookComponent::SetSpriteColor(FLinearColor NewColor)
+{
+	// Can't set color on a static component
+	if (AreDynamicDataChangesAllowed() && (SpriteColor != NewColor))
+	{
+		SpriteColor = NewColor;
+
+		//@TODO: Should we send immediately?
+		MarkRenderDynamicDataDirty();
+	}
+}
+
+//设置实例可视化
+void UWidget::SetVisibility(ESlateVisibility InVisibility)
+{
+	SetVisibilityInternal(InVisibility);
+}
+
+//获得控件
+UUserWidget* UWidgetComponent::GetWidget() const
+{
+	return Widget;
+}
+
+//获得控件实例
+UUserWidget* UWidgetComponent::GetUserWidgetObject() const
+{
+	return Widget;
+}
+
+//获得actor的坐标
+FORCEINLINE_DEBUGGABLE FVector AActor::K2_GetActorLocation() const
+{
+	return GetActorLocation();
+}
+
+//设置文本
+void UTextBlock::SetText(FText InText)
+{
+	Text = InText;
+	TextDelegate.Unbind();
+	if (MyTextBlock.IsValid())
+	{
+		MyTextBlock->SetText(GetDisplayText());
+	}
+	OnTextChanged();
+}
+
+//创造变换
+FTransform UKismetMathLibrary::MakeTransform(FVector Translation, FRotator Rotation, FVector Scale)
+{
+	return FTransform(Rotation, Translation, Scale);
+}
+
+//是否可用
+FORCEINLINE_DEBUGGABLE bool UKismetSystemLibrary::IsValid(const UObject* Object)
+{
+	return ::IsValid(Object);
+}
+
+//设置跟随目标
+void APlayerController::SetViewTargetWithBlend(AActor* NewViewTarget, float BlendTime, EViewTargetBlendFunction BlendFunc, float BlendExp, bool bLockOutgoing)
+{
+	FViewTargetTransitionParams TransitionParams;
+	TransitionParams.BlendTime = BlendTime;
+	TransitionParams.BlendFunction = BlendFunc;
+	TransitionParams.BlendExp = BlendExp;
+	TransitionParams.bLockOutgoing = bLockOutgoing;
+
+	SetViewTarget(NewViewTarget, TransitionParams);
+}
+
+//设置触发器
+FTimerHandle UKismetSystemLibrary::K2_SetTimerDelegate(FTimerDynamicDelegate Delegate, float Time, bool bLooping, float InitialStartDelay, float InitialStartDelayVariance)
+{
+	FTimerHandle Handle;
+	if (Delegate.IsBound())
+	{
+		const UWorld* const World = GEngine->GetWorldFromContextObject(Delegate.GetUObject(), EGetWorldErrorMode::LogAndReturnNull);
+		if (World)
+		{
+			InitialStartDelay += FMath::RandRange(-InitialStartDelayVariance, InitialStartDelayVariance);
+			if (Time <= 0.f || (Time + InitialStartDelay) < 0.f)
+			{
+				FString ObjectName = GetNameSafe(Delegate.GetUObject());
+				FString FunctionName = Delegate.GetFunctionName().ToString();
+				FFrame::KismetExecutionMessage(*FString::Printf(TEXT("%s %s SetTimer passed a negative or zero time. The associated timer may fail to be created/fire! If using InitialStartDelayVariance, be sure it is smaller than (Time + InitialStartDelay)."), *ObjectName, *FunctionName), ELogVerbosity::Warning);
+			}
+
+			FTimerManager& TimerManager = World->GetTimerManager();
+			Handle = TimerManager.K2_FindDynamicTimerHandle(Delegate);
+			TimerManager.SetTimer(Handle, Delegate, Time, bLooping, (Time + InitialStartDelay));
+		}
+	}
+	else
+	{
+		UE_LOG(LogBlueprintUserMessages, Warning,
+			TEXT("SetTimer passed a bad function (%s) or object (%s)"),
+			*Delegate.GetFunctionName().ToString(), *GetNameSafe(Delegate.GetUObject()));
+	}
+
+	return Handle;
+}
+
+//设置摄像机跟随间隔
+FTimerHandle UKismetSystemLibrary::K2_SetTimer(UObject* Object, FString FunctionName, float Time, bool bLooping, float InitialStartDelay, float InitialStartDelayVariance)
+{
+	FName const FunctionFName(*FunctionName);
+
+	if (Object)
+	{
+		UFunction* const Func = Object->FindFunction(FunctionFName);
+		if (Func && (Func->ParmsSize > 0))
+		{
+			// User passed in a valid function, but one that takes parameters
+			// FTimerDynamicDelegate expects zero parameters and will choke on execution if it tries
+			// to execute a mismatched function
+			UE_LOG(LogBlueprintUserMessages, Warning, TEXT("SetTimer passed a function (%s) that expects parameters."), *FunctionName);
+			return FTimerHandle();
+		}
+	}
+
+	FTimerDynamicDelegate Delegate;
+	Delegate.BindUFunction(Object, FunctionFName);
+	return K2_SetTimerDelegate(Delegate, Time, bLooping, InitialStartDelay);
+}
+
+//停止摄像机移动
+void UKismetSystemLibrary::K2_PauseTimerHandle(const UObject* WorldContextObject, FTimerHandle Handle)
+{
+	if (Handle.IsValid())
+	{
+		UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+		if (World)
+		{
+			World->GetTimerManager().PauseTimer(Handle);
+		}
+	}
+}
+
+//开启摄像机移动
+void UKismetSystemLibrary::K2_UnPauseTimerHandle(const UObject* WorldContextObject, FTimerHandle Handle)
+{
+	if (Handle.IsValid())
+	{
+		UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+		if (World)
+		{
+			World->GetTimerManager().UnPauseTimer(Handle);
+		}
+	}
+}
+
+//
+KISMET_MATH_FORCEINLINE
+FVector UKismetMathLibrary::VLerp(FVector A, FVector B, float V)
+{
+	return A + V * (B - A);
+}
+
+//设置actor位置坐标
+bool AActor::K2_SetActorLocation(FVector NewLocation, bool bSweep, FHitResult& SweepHitResult, bool bTeleport)
+{
+	return SetActorLocation(NewLocation, bSweep, (bSweep ? &SweepHitResult : nullptr), TeleportFlagToEnum(bTeleport));
+}
+
+//停止移动
+inline void UMovementComponent::StopMovementImmediately()
+{
+	Velocity = FVector::ZeroVector;
+	UpdateComponentVelocity();
+}
+
+//获取actor位置坐标
+FORCEINLINE_DEBUGGABLE FVector AActor::K2_GetActorLocation() const
+{
+	return GetActorLocation();
+}
+
+//获得actor类
+AActor* UGameplayStatics::GetActorOfClass(const UObject* WorldContextObject, TSubclassOf<AActor> ActorClass)
+{
+	QUICK_SCOPE_CYCLE_COUNTER(UGameplayStatics_GetActorOfClass);
+
+	// We do nothing if no is class provided
+	if (ActorClass)
+	{
+		if (UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull))
+		{
+			for (TActorIterator<AActor> It(World, ActorClass); It; ++It)
+			{
+				AActor* Actor = *It;
+				return Actor;
+			}
+		}
+	}
+
+	return nullptr;
+}
+
+//销毁actor
+void AActor::K2_DestroyActor()
+{
+	Destroy();
+}
+
+//设置移动模式
+void UCharacterMovementComponent::SetMovementMode(EMovementMode NewMovementMode, uint8 NewCustomMode)
+{
+	if (NewMovementMode != MOVE_Custom)
+	{
+		NewCustomMode = 0;
+	}
+
+	// If trying to use NavWalking but there is no navmesh, use walking instead.
+	if (NewMovementMode == MOVE_NavWalking)
+	{
+		if (GetNavData() == nullptr)
+		{
+			NewMovementMode = MOVE_Walking;
+		}
+	}
+
+	// Do nothing if nothing is changing.
+	if (MovementMode == NewMovementMode)
+	{
+		// Allow changes in custom sub-mode.
+		if ((NewMovementMode != MOVE_Custom) || (NewCustomMode == CustomMovementMode))
+		{
+			return;
+		}
+	}
+
+	const EMovementMode PrevMovementMode = MovementMode;
+	const uint8 PrevCustomMode = CustomMovementMode;
+
+	MovementMode = NewMovementMode;
+	CustomMovementMode = NewCustomMode;
+
+	// We allow setting movement mode before we have a component to update, in case this happens at startup.
+	if (!HasValidData())
+	{
+		return;
+	}
+	
+	// Handle change in movement mode
+	OnMovementModeChanged(PrevMovementMode, PrevCustomMode);
+
+	// @todo do we need to disable ragdoll physics here? Should this function do nothing if in ragdoll?
+
+	bMovementModeDirty = true; // lets async callback know movement mode was dirtied on game thread
+}
+
+//获取Pawn类
+APawn* AController::K2_GetPawn() const
+{
+	return GetPawn();
+}
+
+//关卡跳转
+void UGameplayStatics::OpenLevelBySoftObjectPtr(const UObject* WorldContextObject, const TSoftObjectPtr<UWorld> Level, bool bAbsolute, FString Options)
+{
+	const FName LevelName = FName(*FPackageName::ObjectPathToPackageName(Level.ToString()));
+	UGameplayStatics::OpenLevel(WorldContextObject, LevelName, bAbsolute, Options);
+}
+
+//获取actor实例标签
+bool AActor::ActorHasTag(FName Tag) const
+{
+	return (Tag != NAME_None) && Tags.Contains(Tag);
+}
+
+//获取投掷物路线长度
+float USplineComponent::GetSplineLength() const
+{
+	return SplineCurves.GetSplineLength();
+}
+
+//获得投掷物位置
+FVector USplineComponent::GetLocationAtDistanceAlongSpline(float Distance, ESplineCoordinateSpace::Type CoordinateSpace) const
+{
+	const float Param = SplineCurves.ReparamTable.Eval(Distance, 0.0f);
+	return GetLocationAtSplineInputKey(Param, CoordinateSpace);
+}
+
+//添加控件到视口
+void UUserWidget::AddToViewport(int32 ZOrder)
+{
+	if (UGameViewportSubsystem* Subsystem = UGameViewportSubsystem::Get(GetWorld()))
+	{
+		FGameViewportWidgetSlot ViewportSlot;
+		if (bIsManagedByGameViewportSubsystem)
+		{
+			ViewportSlot = Subsystem->GetWidgetSlot(this);
+		}
+		ViewportSlot.ZOrder = ZOrder;
+		Subsystem->AddWidget(this, ViewportSlot);
+	}
+}
+
+//判断是否为本地控制器
+FORCEINLINE_DEBUGGABLE bool AController::IsLocalPlayerController() const
+{
+	return IsPlayerController() && IsLocalController();
+}
+
+//使新创建的实例连接到玩家控制器
+void AController::Possess(APawn* InPawn)
+{
+	if (!bCanPossessWithoutAuthority && !HasAuthority())
+	{
+		FMessageLog("PIE").Warning(FText::Format(
+			LOCTEXT("ControllerPossessAuthorityOnly", "Possess function should only be used by the network authority for {0}"),
+			FText::FromName(GetFName())
+			));
+		UE_LOG(LogController, Warning, TEXT("Trying to possess %s without network authority! Request will be ignored."), *GetNameSafe(InPawn));
+		return;
+	}
+
+	REDIRECT_OBJECT_TO_VLOG(InPawn, this);
+
+	APawn* CurrentPawn = GetPawn();
+
+	// A notification is required when the current assigned pawn is not possessed (i.e. pawn assigned before calling Possess)
+	const bool bNotificationRequired = (CurrentPawn != nullptr) && (CurrentPawn->GetController() == nullptr);
+
+	// To preserve backward compatibility we keep notifying derived classed for null pawn in case some
+	// overrides decided to react differently when asked to possess a null pawn.
+	// Default engine implementation is to unpossess the current pawn.
+	OnPossess(InPawn);
+
+	// Notify when pawn to possess (different than the assigned one) has been accepted by the native class or notification is explicitly required
+	APawn* NewPawn = GetPawn();
+	if ((NewPawn != CurrentPawn) || bNotificationRequired)
+	{
+		ReceivePossess(NewPawn);
+		OnNewPawn.Broadcast(NewPawn);
+		OnPossessedPawnChanged.Broadcast(bNotificationRequired ? nullptr : CurrentPawn, NewPawn);
+	}
+	
+	TRACE_PAWN_POSSESS(this, InPawn); 
+}
+
+//设置进度条百分比
+void UProgressBar::SetPercent(float InPercent)
+{
+	Percent = InPercent;
+	if (MyProgressBar.IsValid())
+	{
+		MyProgressBar->SetPercent(InPercent);
+	}
+}
+
+//进度条数据转换成文本
+FText UKismetTextLibrary::AsPercent_Float(float Value, TEnumAsByte<ERoundingMode> RoundingMode, bool bAlwaysSign/* = false*/, bool bUseGrouping/* = true*/, int32 MinimumIntegralDigits/* = 1*/, int32 MaximumIntegralDigits/* = 324*/, int32 MinimumFractionalDigits/* = 0*/, int32 MaximumFractionalDigits/* = 3*/)
+{
+	FNumberFormattingOptions NumberFormatOptions;
+	NumberFormatOptions.AlwaysSign = bAlwaysSign;
+	NumberFormatOptions.UseGrouping = bUseGrouping;
+	NumberFormatOptions.RoundingMode = RoundingMode;
+	NumberFormatOptions.MinimumIntegralDigits = MinimumIntegralDigits;
+	NumberFormatOptions.MaximumIntegralDigits = MaximumIntegralDigits;
+	NumberFormatOptions.MinimumFractionalDigits = MinimumFractionalDigits;
+	NumberFormatOptions.MaximumFractionalDigits = MaximumFractionalDigits;
+
+	return FText::AsPercent(Value, &NumberFormatOptions);
+}
+
+//获取游戏模式
+AGameModeBase* UGameplayStatics::GetGameMode(const UObject* WorldContextObject)
+{
+	UWorld* const World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	return World ? World->GetAuthGameMode() : NULL;
+}
+
+//加入数组
+int32 UKismetArrayLibrary::Array_Add(const TArray<int32>& TargetArray, const int32& NewItem)
+{
+	// We should never hit these!  They're stubs to avoid NoExport on the class.  Call the Generic* equivalent instead
+	check(0);
+	return 0;
+}
+
+//判断控件是否可用
+void UWidget::SetIsEnabled(bool bInIsEnabled)
+{
+	bool bValueChanged = false;
+	if (bIsEnabled != bInIsEnabled)
+	{
+		bIsEnabled = bInIsEnabled;
+		BroadcastFieldValueChanged(FFieldNotificationClassDescriptor::bIsEnabled);
+		bValueChanged = true;
+	}
+
+	TSharedPtr<SWidget> SafeWidget = GetCachedWidget();
+	if (SafeWidget.IsValid())
+	{
+		SafeWidget->SetEnabled(bInIsEnabled);
+	}
+
+	if (bValueChanged)
+	{
+		// Note: State is disabled, so we broadcast !bIsEnabled
+		BroadcastBinaryPostStateChange(UWidgetDisabledStateRegistration::Bit, !bIsEnabled);
+	}
+}
+
+//判断是否为服务器
+bool UKismetSystemLibrary::IsServer(const UObject* WorldContextObject)
+{
+	UWorld* World = GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	return World ? (World->GetNetMode() != NM_Client) : false;
+}
+
+//退出游戏
+void UKismetSystemLibrary::QuitGame(const UObject* WorldContextObject, class APlayerController* SpecificPlayer, TEnumAsByte<EQuitPreference::Type> QuitPreference, bool bIgnorePlatformRestrictions)
+{
+	APlayerController* TargetPC = SpecificPlayer ? SpecificPlayer : UGameplayStatics::GetPlayerController(WorldContextObject, 0);
+	if( TargetPC )
+	{
+		if ( QuitPreference == EQuitPreference::Background)
+		{
+			TargetPC->ConsoleCommand("quit background");
+		}
+		else
+		{
+			if (bIgnorePlatformRestrictions)
+			{
+				TargetPC->ConsoleCommand("quit force");
+			}
+			else
+			{
+				TargetPC->ConsoleCommand("quit");
+			}
+		}
+	}
+}
+
+//判断文本是否为空
+bool UKismetTextLibrary::TextIsEmpty(const FText& InText)
+{
+	return InText.IsEmpty();
+}
+
+
+//获取文本
+FText UEditableText::GetText() const
+{
+	if ( MyEditableText.IsValid() )
+	{
+		return MyEditableText->GetText();
+	}
+
+	return Text;
+}
+
+//清空列表
+void UPanelWidget::ClearChildren()
+{
+	for ( int32 ChildIndex = GetChildrenCount() - 1; ChildIndex >= 0; ChildIndex-- )
+	{
+		RemoveChildAt(ChildIndex);
+	}
+}
+
+//获取已有的玩家实例
+APlayerController* UWidget::GetOwningPlayer() const
+{
+	UWidgetTree* WidgetTree = Cast<UWidgetTree>(GetOuter());
+	if (UUserWidget* UserWidget = WidgetTree ? Cast<UUserWidget>(WidgetTree->GetOuter()) : nullptr)
+	{
+		return UserWidget->GetOwningPlayer();
+	}
+	return nullptr;
+}
+
+//获取服务器名字
+FString UFindSessionsCallbackProxy::GetServerName(const FBlueprintSessionResult& Result)
+{
+	return Result.OnlineResult.Session.OwningUserName;
+}
+
+//获取当前玩家名字
+int32 UFindSessionsCallbackProxy::GetCurrentPlayers(const FBlueprintSessionResult& Result)
+{
+	return Result.OnlineResult.Session.SessionSettings.NumPublicConnections - Result.OnlineResult.Session.NumOpenPublicConnections;
+}
+
+//获取最大玩家数
+int32 UFindSessionsCallbackProxy::GetMaxPlayers(const FBlueprintSessionResult& Result)
+{
+	return Result.OnlineResult.Session.SessionSettings.NumPublicConnections;
+}
+
+//获取ping值
+int32 UFindSessionsCallbackProxy::GetPingInMs(const FBlueprintSessionResult& Result)
+{
+	return Result.OnlineResult.PingInMs;
+}
+
+//添加子类到控件箱
+UVerticalBoxSlot* UVerticalBox::AddChildToVerticalBox(UWidget* Content)
+{
+	return Cast<UVerticalBoxSlot>(Super::AddChild(Content));
+}
+
+//从父类里移除
+void UWidget::RemoveFromParent()
+{
+	if (!HasAnyFlags(RF_BeginDestroyed))
+	{
+		if (bIsManagedByGameViewportSubsystem)
+		{
+			if (UGameViewportSubsystem* Subsystem = UGameViewportSubsystem::Get(GetWorld()))
+			{
+				Subsystem->RemoveWidget(this);
+			}
+		}
+		else if (UPanelWidget* CurrentParent = GetParent())
+		{
+			CurrentParent->RemoveChild(this);
+		}
+		else
+		{
+#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+			if (GetCachedWidget().IsValid() && GetCachedWidget()->GetParentWidget().IsValid() && !IsDesignTime())
+			{
+				FText WarningMessage = FText::Format(LOCTEXT("RemoveFromParentWithNoParent", "UWidget::RemoveFromParent() called on '{0}' which has no UMG parent (if it was added directly to a native Slate widget via TakeWidget() then it must be removed explicitly rather than via RemoveFromParent())"), FText::AsCultureInvariant(GetPathName()));
+				// @todo: nickd - we need to switch this back to a warning in engine, but info for games
+				FMessageLog("PIE").Info(WarningMessage);
+			}
+#endif
+		}
+	}
+}
+
